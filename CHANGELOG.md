@@ -165,6 +165,14 @@ cloud catalogue.
 
 ### Fixed
 
+- **The setup step for images and videos no longer says "Unknown backend
+  command: install_python".** In the browser build (`npm run dev`, no desktop
+  process behind it) the Python pre-flight of that step had no answer at all, so
+  pressing Install or Connect printed a developer message. The dev server now
+  answers it: when Python is on the machine it says so and the install goes on,
+  and when it is missing it says that installing Python needs the desktop app and
+  where to get Python instead. The "Install ComfyUI" button also checks the same
+  interpreter, so a Windows Store alias is no longer mistaken for a real Python.
 - **A picture attached in the chat reaches the image tool.** image_generate
   and video_generate failed with "could not read input image image.png (HTTP
   404)". The attachment now goes in by its number in the chat. (Discord)

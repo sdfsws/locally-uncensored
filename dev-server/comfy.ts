@@ -386,6 +386,53 @@ export function registerComfyInstallRoutes(routes: RouteMount, comfy: ComfyLaunc
     })
   })
 
+  // API: Python pre-flight of the ComfyUI install (ComfyStep's
+  // ensurePythonInstalled / comfyInstallStore's runInstall). Rust answers these
+  // from commands::install::python; the plain Vite server had no route at all,
+  // so the click landed on "Unknown backend command: install_python" instead of
+  // the probe result. `pythonBin` already filters the Windows Store alias, so a
+  // working probe here means a real interpreter, the same thing the Rust side
+  // checks before it lets ComfyUI install.
+  const pythonWorks = (): boolean => {
+    try {
+      execFileSync(pythonBin, ['--version'], { stdio: 'ignore', timeout: 15000 })
+      return true
+    } catch { return false }
+  }
+
+  routes.use('/local-api/python-check', (_req, res) => {
+    const available = pythonWorks()
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ available, path: available ? pythonBin : null }))
+  })
+
+  routes.use('/local-api/install-python', (req, res) => {
+    if (req.method === 'GET') {
+      // Nothing to install here: the dev server never runs winget. Report what
+      // is on the box so a poller that skipped the probe still gets a truthful
+      // answer (ready, or a sentence it can show) instead of polling for ever.
+      const available = pythonWorks()
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(available
+        ? { status: 'already_installed', logs: [`Using the Python already on this machine: ${pythonBin}`] }
+        : {
+            status: 'error',
+            error: 'Installing Python is only available in the desktop app. Install Python 3.10+ from python.org (or your package manager), then click Connect again.',
+            logs: [],
+          }))
+      return
+    }
+    if (!requirePost(req, res)) return
+    const available = pythonWorks()
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(available
+      ? { status: 'already_installed' }
+      : {
+          status: 'error',
+          error: 'Installing Python is only available in the desktop app. Install Python 3.10+ from python.org (or your package manager), then click Connect again.',
+        }))
+  })
+
   // API: Install ComfyUI from scratch
   const installLogs: string[] = []
   let installStatus: 'idle' | 'installing' | 'complete' | 'error' = 'idle'
@@ -406,10 +453,10 @@ export function registerComfyInstallRoutes(routes: RouteMount, comfy: ComfyLaunc
       return
     }
 
-    // Check Python is available
-    try {
-      execSync('python --version', { stdio: 'ignore' })
-    } catch {
+    // Check Python is available. Same interpreter the routes above report, so
+    // the probe cannot say yes while this check says no on a box where `python`
+    // is only the Microsoft Store stub.
+    if (!pythonWorks()) {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ status: 'error', error: 'Python not found. Install Python 3.10+ from python.org first.' }))
       return

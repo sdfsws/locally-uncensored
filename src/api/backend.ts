@@ -501,6 +501,14 @@ export async function backendCall<T = unknown>(
     // both were needed, not just one.
     detect_all_comfyui_installs: { path: "/local-api/detect-all-comfyui-installs" },
     set_comfyui_path: { path: "/local-api/set-comfyui-path", method: "POST" },
+    // The Python pre-flight of the same step: ComfyStep's ensurePythonInstalled
+    // and comfyInstallStore's runInstall both probe first and only install when
+    // the probe says no. Without these two entries the browser dev surface threw
+    // "Unknown backend command: install_python" straight into the step's error
+    // line the moment the Install button was clicked.
+    python_check: { path: "/local-api/python-check" },
+    install_python: { path: "/local-api/install-python", method: "POST" },
+    install_python_status: { path: "/local-api/install-python" },
     install_comfyui: { path: "/local-api/install-comfyui", method: "POST" },
     install_comfyui_status: { path: "/local-api/install-comfyui" },
     install_ollama: { path: "/local-api/install-ollama", method: "POST" },
