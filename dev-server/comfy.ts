@@ -90,6 +90,33 @@ function isComfyInstallComplete(comfyPath: string, running: boolean): boolean {
 }
 
 /**
+ * Laeuft dieser Dev-Server in einem Container (docker-compose / Dockerfile)?
+ *
+ * Wichtig fuer die ComfyUI-Routen weiter unten: in `docker compose up` liegt
+ * NUR der Vite-Server im Container — kein Python, keine ComfyUI (siehe Dockerfile
+ * oben). Der Browser laeuft dagegen auf dem Host. Ein Pfad, den jemand dort
+ * eintippt (`C:\ComfyUI`, der Platzhalter) und ein dort gefundener Ordner sind
+ * im Container nicht vorhanden, und `python3` gibt es hier gar nicht.
+ *
+ * Vorher sagte `python_check` in diesem Fall einfach `available: false`, und die
+ * Oberflaeche startete daraufhin den Python-Install — der Dev-Server hat dafuer
+ * nur eine Absage. Der Hinweis muss deshalb sagen, WO das fehlt: im Container,
+ * nicht auf dem Rechner des Lesers.
+ */
+export function inContainer(): boolean {
+  return existsSync('/.dockerenv') || process.env.DOCKER_CONTAINER === '1'
+}
+
+/** Ein Pfad, den dieser Prozess nicht sieht — z. B. ein Windows-Pfad im Linux-Container. */
+export function pathNotVisibleHere(p: string): boolean {
+  if (!inContainer()) return false
+  if (!p) return true
+  // Windows-Laufwerkspfade (C:\… oder C:/…) existieren im Linux-Container nie.
+  if (/^[A-Za-z]:[\\/]/.test(p)) return true
+  return !existsSync(p)
+}
+
+/**
  * Der ComfyUI-Kindprozess und alles, was ihn anfasst.
  *
  * Ein Modul, weil hier genau EIN veränderlicher Zustand liegt — der laufende
@@ -348,6 +375,15 @@ export function registerComfyInstallRoutes(routes: RouteMount, comfy: ComfyLaunc
         // Ohne Pfad gibt es nichts zu prüfen; `join(undefined, …)` warf hier
         // vorher eine TypeError in den Catch und meldete sie als "error".
         const mainPy = newPath ? join(newPath, 'main.py') : ''
+        // Im Container ist ein Pfad des Hosts (etwa der Windows-Platzhalter
+        // `C:\ComfyUI`) grundsaetzlich unsichtbar. Der allgemeine "main.py not
+        // found"-Satz waere hier irrefuehrend — es fehlt nicht main.py, es fehlt
+        // der ganze Ordner, und zwar weil der Container ihn nicht gemountet hat.
+        if (pathNotVisibleHere(newPath)) {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ status: 'error', error: `The browser build is running in a Docker container, so it cannot see "${newPath}" on your machine. Mount the ComfyUI folder into the container and use its path inside the container, or run the desktop app.` }))
+          return
+        }
         if (!mainPy || !existsSync(mainPy)) {
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ status: 'error', error: `main.py not found in "${newPath}". Make sure this is the ComfyUI root folder.` }))
@@ -400,10 +436,20 @@ export function registerComfyInstallRoutes(routes: RouteMount, comfy: ComfyLaunc
     } catch { return false }
   }
 
+  // Die Absage des Dev-Servers. Zwei Faelle, zwei Saetze: im Container fehlt
+  // Python absichtlich (siehe Dockerfile) und der Leser sitzt am Host, dort
+  // hilft der Hinweis auf python.org bzw. den Paketmanager des Hosts; ausserhalb
+  // des Containers ist es wirklich "installier Python auf dieser Maschine".
+  const noPythonSentence = (): string => inContainer()
+    ? 'This browser build runs inside a Docker container, which deliberately ships no Python and no ComfyUI (see the Dockerfile). Installing them here would put them inside the container, not on your machine. Run the desktop app for ComfyUI, or run `npm run dev` natively on the host.'
+    : 'Installing Python is only available in the desktop app. Install Python 3.10+ from python.org (or your package manager), then click Connect again.'
+
   routes.use('/local-api/python-check', (_req, res) => {
     const available = pythonWorks()
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ available, path: available ? pythonBin : null }))
+    // `in_container` sagt der Oberflaeche, dass ein fehlendes Python hier
+    // erwartet ist und nicht durch einen Install-Knopf zu beheben waere.
+    res.end(JSON.stringify({ available, path: available ? pythonBin : null, in_container: inContainer() }))
   })
 
   routes.use('/local-api/install-python', (req, res) => {
@@ -417,7 +463,7 @@ export function registerComfyInstallRoutes(routes: RouteMount, comfy: ComfyLaunc
         ? { status: 'already_installed', logs: [`Using the Python already on this machine: ${pythonBin}`] }
         : {
             status: 'error',
-            error: 'Installing Python is only available in the desktop app. Install Python 3.10+ from python.org (or your package manager), then click Connect again.',
+            error: noPythonSentence(),
             logs: [],
           }))
       return
@@ -427,10 +473,7 @@ export function registerComfyInstallRoutes(routes: RouteMount, comfy: ComfyLaunc
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(available
       ? { status: 'already_installed' }
-      : {
-          status: 'error',
-          error: 'Installing Python is only available in the desktop app. Install Python 3.10+ from python.org (or your package manager), then click Connect again.',
-        }))
+      : { status: 'error', error: noPythonSentence() }))
   })
 
   // API: Install ComfyUI from scratch
@@ -458,7 +501,7 @@ export function registerComfyInstallRoutes(routes: RouteMount, comfy: ComfyLaunc
     // is only the Microsoft Store stub.
     if (!pythonWorks()) {
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ status: 'error', error: 'Python not found. Install Python 3.10+ from python.org first.' }))
+      res.end(JSON.stringify({ status: 'error', error: inContainer() ? noPythonSentence() : 'Python not found. Install Python 3.10+ from python.org first.' }))
       return
     }
 

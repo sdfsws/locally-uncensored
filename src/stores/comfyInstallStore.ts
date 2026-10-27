@@ -257,11 +257,20 @@ export const useComfyInstallStore = create<ComfyInstallState>()((set, get) => {
       // neutral phase and `python` now means what it says.
       begin('checking', 'install', '')
       let pythonOk = false
+      let inContainer = false
       try {
-        const probe = await backendCall<{ available?: boolean }>('python_check')
+        const probe = await backendCall<{ available?: boolean; in_container?: boolean }>('python_check')
         pythonOk = !!probe?.available
+        inContainer = !!probe?.in_container
       } catch {
         pythonOk = false
+      }
+      if (!pythonOk && inContainer) {
+        // Der Dev-Server im Container hat kein Python und kann keins holen
+        // (Dockerfile). Der Install waere hier nur ein Satz im Log und dann
+        // eine Absage; sag es gleich.
+        fail('This browser build runs in a Docker container, and the container has no Python or ComfyUI inside it (see the Dockerfile). Install the desktop app for ComfyUI, or run `npm run dev` natively on this machine.')
+        return
       }
       if (!pythonOk) {
         set({ phase: 'python', logs: ['Installing Python 3.12 via winget…'] })

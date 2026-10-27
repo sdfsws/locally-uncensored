@@ -206,11 +206,26 @@ export function ComfyStep({ skin, fleet, step, setStep }: ComfyStepProps) {
   // "not responding" message in the UI. Returns true once Python is ready.
   // If Python is already installed, this is a no-op single round trip.
   const ensurePythonInstalled = async (): Promise<boolean> => {
+    let inContainer = false
     try {
-      const probe = await backendCall<{ available: boolean; path?: string | null }>('python_check')
+      const probe = await backendCall<{ available: boolean; path?: string | null; in_container?: boolean }>('python_check')
       if (probe?.available) return true
+      // Der Dev-Server im Docker-Container hat absichtlich kein Python (siehe
+      // Dockerfile) und kann es auch nicht installieren. Vorher lief dieser
+      // Zweig trotzdem los: eine Logzeile "Installing Python 3.12 via winget…"
+      // auf einer Linux-Kiste, danach die Absage des Servers. Hier wird daraus
+      // eine Aussage statt eines Versuchs.
+      inContainer = !!probe?.in_container
     } catch {
       // Treat as "not available" and continue to install.
+    }
+
+    if (inContainer) {
+      pythonDo({
+        type: 'fail',
+        error: 'This browser build runs in a Docker container, and the container has no Python or ComfyUI inside it (see the Dockerfile). Install the desktop app for ComfyUI, or run `npm run dev` natively on this machine.',
+      })
+      return false
     }
 
     pythonDo({ type: 'start', at: Date.now(), log: 'Installing Python 3.12 via winget…' })
