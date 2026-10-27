@@ -1,0 +1,15 @@
+# Dependencies and build output come from the image's own `npm ci`, never from
+# the host — a Windows node_modules copied in would break the container.
+node_modules
+dist
+dist-ssr
+src-tauri/target
+.git
+.github
+.logs
+*.log
+
+# Local config and data never belong in an image.
+.env
+.env.*
+.env.example

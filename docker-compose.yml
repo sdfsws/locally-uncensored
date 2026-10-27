@@ -1,0 +1,36 @@
+# Dev-server container for Locally Uncensored — the browser build at
+# http://localhost:5273 (the same port as `npm run dev` and the Tauri devUrl).
+#
+# Use it when you want the app without installing Node locally. It is not the
+# desktop app; the installed build has more features.
+#
+#   docker compose up -d --build     start (or update) it
+#   docker compose logs -f app       follow the dev-server log
+#   docker compose down              stop it
+#
+# The port is published on 127.0.0.1 only. `--host` makes /shell-execute and
+# /execute-code reachable from whatever network the port is bound to, and this
+# container deliberately does not sandbox them.
+
+name: locally-uncensored
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: locally-uncensored:local
+    container_name: locally-uncensored
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5273:5273"
+    environment:
+      # Vite's host binding (no Compose-side port interpolation anywhere).
+      HOST: 0.0.0.0
+      PORT: "5273"
+      # Empty unless set on the host; see Dockerfile for why ComfyUI/STT are off.
+      COMFYUI_PATH: ${COMFYUI_PATH:-}
+      # A model backend outside the container (Ollama on the host, LM Studio on
+      # the LAN). Use host.docker.internal, not localhost — inside the container
+      # localhost is the container. Honored since v2.4.0 (CHANGELOG).
+      OLLAMA_HOST: ${OLLAMA_HOST:-}
